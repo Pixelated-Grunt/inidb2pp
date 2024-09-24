@@ -13,11 +13,12 @@ private:
   unordered_map<string, string> content_;
 
 public:
-  const string &title = title_;
   Section(){};
+  const string &title = title_;
 
   void Create(string name) { title_ = name; }
   void SetContent(string key, string value) { content_[key] = value; }
+  int Count() { return content_.size(); }
 };
 
 class INIFile {
@@ -26,17 +27,17 @@ private:
   fstream fd_;
   vector<Section> sections_;
 
-  string* ProcessLine(string line, char delimiter) {
+  static string *ProcessLine(string line, char delimiter = '=') {
     static string array[2];
     string p1, p2;
-    int index;
+    size_t index;
 
     index = line.find(delimiter);
     if (index == string::npos) {
       return array;
     }
-    array[0] = line.substr(0, index-1);
-    array[1] = line.substr(index);
+    array[0] = line.substr(0, index);
+    array[1] = line.substr(index+1);
     return array;
   }
 
@@ -80,22 +81,37 @@ public:
       return -1;
     }
 
+    Section *current_section;
     while (getline(fd_, line)) {
-      Section section;
       if (line[0] == '[') {
         string title = ExtractSectionName(line);
         if (!title.empty()) {
+          Section section;
           section.Create(title);
-          AddSection(section);
+          current_section = &section;
         }
       } else {
-        if (!section.title.empty()) {
-          section.SetContent("test", line);
+        if (!current_section->title.empty()) {
+          string *line_splits;
+          line_splits = INIFile::ProcessLine(line);
+          if (!line_splits->empty()) {
+            current_section->SetContent(line_splits[0], line_splits[1]);
+            AddSection(*current_section);
+          }
         }
       }
       line_count += 1;
     }
     return line_count;
+  }
+
+  Section *GetSection(string name) {
+    for (size_t i = 0; i < sections_.size(); i++) {
+      if (sections_[i].title == name) {
+        return &sections_[i];
+      }
+    }
+    return nullptr;
   }
 };
 
@@ -109,8 +125,13 @@ TEST_CASE("INIFile class test") {
     int count = ini_file.Open();
     CHECK(count == 314);
   }
-  SUBCASE("get number of sections") {
+  SUBCASE("get total number of sections") {
     ini_file.Open();
     CHECK(ini_file.GetSectionCount() == 9);
+  }
+  SUBCASE("return session section from db") {
+    ini_file.Open();
+    Section *session = ini_file.GetSection("session");
+    CHECK(session != nullptr);
   }
 }
