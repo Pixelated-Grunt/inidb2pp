@@ -14,11 +14,12 @@ private:
 
 public:
   Section(){};
-  const string &title = title_;
 
   void Create(string name) { title_ = name; }
   void SetContent(string key, string value) { content_[key] = value; }
+  void ClearContent() { content_.clear(); }
   int Count() { return content_.size(); }
+  string GetTitle() { return title_; }
 };
 
 class INIFile {
@@ -37,11 +38,11 @@ private:
       return array;
     }
     array[0] = line.substr(0, index);
-    array[1] = line.substr(index+1);
+    array[1] = line.substr(index + 1);
     return array;
   }
 
-  string ExtractSectionName(string line) {
+  static string ExtractSectionName(string line) {
     size_t l_idx, r_idx;
 
     l_idx = line.find("[");
@@ -81,36 +82,46 @@ public:
       return -1;
     }
 
-    Section *current_section;
+    Section current_section;
     while (getline(fd_, line)) {
       if (line[0] == '[') {
         string title = ExtractSectionName(line);
         if (!title.empty()) {
-          Section section;
-          section.Create(title);
-          current_section = &section;
+          if (current_section.GetTitle().empty()) {
+            current_section.Create(title);
+          } else {
+            if (current_section.GetTitle() != title) {
+              AddSection(current_section);
+              current_section.ClearContent();
+              current_section.Create(title);
+            }
+          }
         }
       } else {
-        if (!current_section->title.empty()) {
+        if (!current_section.GetTitle().empty()) {
           string *line_splits;
           line_splits = INIFile::ProcessLine(line);
           if (!line_splits->empty()) {
-            current_section->SetContent(line_splits[0], line_splits[1]);
-            AddSection(*current_section);
+            current_section.SetContent(line_splits[0], line_splits[1]);
           }
         }
       }
       line_count += 1;
+    }
+    if ((!current_section.GetTitle().empty()) &&
+        (current_section.Count() > 0)) {
+      AddSection(current_section);
     }
     return line_count;
   }
 
   Section *GetSection(string name) {
     for (size_t i = 0; i < sections_.size(); i++) {
-      if (sections_[i].title == name) {
+      if (sections_[i].GetTitle() == name) {
         return &sections_[i];
       }
     }
+    // TODO: change to exception
     return nullptr;
   }
 };
@@ -131,7 +142,19 @@ TEST_CASE("INIFile class test") {
   }
   SUBCASE("return session section from db") {
     ini_file.Open();
-    Section *session = ini_file.GetSection("session");
-    CHECK(session != nullptr);
+    Section *s = ini_file.GetSection("meta");
+    CHECK(s != nullptr);
+    CHECK(s->GetTitle() == "meta");
+    CHECK(s->Count() == 9);
+
+    Section *s2 = ini_file.GetSection("session");
+    CHECK(s2 != nullptr);
+    CHECK(s2->GetTitle() == "session");
+    CHECK(s2->Count() == 22);
+
+    Section *s3 = ini_file.GetSection("markers");
+    CHECK(s3 != nullptr);
+    CHECK(s3->GetTitle() == "markers");
+    CHECK(s3->Count() == 106);
   }
 }
