@@ -1,18 +1,20 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include "doctest.h"
+#include <algorithm>
 #include <fstream>
+#include <map>
 #include <string>
-#include <unordered_map>
 #include <vector>
+
+#include "doctest.h"
 
 using namespace std;
 
 class Section {
-private:
+ private:
   string title_;
-  unordered_map<string, string> content_;
+  map<string, string> content_;
 
-public:
+ public:
   Section(){};
 
   void Create(string name) { title_ = name; }
@@ -20,10 +22,18 @@ public:
   void ClearContent() { content_.clear(); }
   int Count() { return content_.size(); }
   string GetTitle() { return title_; }
+  void SetTitle(string new_title) { title_ = new_title; }
+  string GetValue(string key) {
+    if (auto v = content_.find(key); v != content_.end()) {
+      return v->second.erase(v->second.find_last_of('\r'));
+    } else {
+      return "";
+    }
+  }
 };
 
 class INIFile {
-private:
+ private:
   string db_name_, db_path_;
   fstream fd_;
   vector<Section> sections_;
@@ -54,7 +64,7 @@ private:
     return "";
   }
 
-public:
+ public:
   INIFile(string name, string path = "db/") {
     db_name_ = name;
     db_path_ = path;
@@ -70,6 +80,14 @@ public:
   void SetDBName(string name) { db_name_ = name; }
   string GetDBPath() { return db_path_; }
   int GetSectionCount() { return sections_.size(); }
+  vector<string> ListSections() {
+    vector<string> titles = {};
+    for (auto s : sections_) {
+      titles.push_back(s.GetTitle());
+    }
+    return titles;
+  }
+
   void AddSection(Section section) { sections_.push_back(section); }
 
   int Open() {
@@ -87,13 +105,20 @@ public:
       if (line[0] == '[') {
         string title = ExtractSectionName(line);
         if (!title.empty()) {
+          // first entry
           if (current_section.GetTitle().empty()) {
             current_section.Create(title);
           } else {
             if (current_section.GetTitle() != title) {
-              AddSection(current_section);
-              current_section.ClearContent();
-              current_section.Create(title);
+              vector<string> target = ListSections();
+              if (!(find(target.begin(), target.end(), title) !=
+                    target.end())) {
+                AddSection(current_section);
+                current_section.ClearContent();
+                current_section.Create(title);
+              } else {
+                current_section.SetTitle("");
+              }
             }
           }
         }
@@ -129,7 +154,7 @@ public:
 /**************
  * TEST CASES *
  **************/
-TEST_CASE("INIFile class test") {
+TEST_CASE("INIFile class function tests") {
   INIFile ini_file("XDF_Op_TigerTrap", "db/");
 
   SUBCASE("open an ini file") {
@@ -142,19 +167,51 @@ TEST_CASE("INIFile class test") {
   }
   SUBCASE("return session section from db") {
     ini_file.Open();
-    Section *s = ini_file.GetSection("meta");
-    CHECK(s != nullptr);
-    CHECK(s->GetTitle() == "meta");
-    CHECK(s->Count() == 9);
 
-    Section *s2 = ini_file.GetSection("session");
-    CHECK(s2 != nullptr);
-    CHECK(s2->GetTitle() == "session");
-    CHECK(s2->Count() == 22);
+    {
+      Section *s = ini_file.GetSection("meta");
+      CHECK(s != nullptr);
+      CHECK(s->GetTitle() == "meta");
+      CHECK(s->Count() == 9);
+    }
 
-    Section *s3 = ini_file.GetSection("markers");
-    CHECK(s3 != nullptr);
-    CHECK(s3->GetTitle() == "markers");
-    CHECK(s3->Count() == 106);
+    {
+      Section *s = ini_file.GetSection("session");
+      CHECK(s != nullptr);
+      CHECK(s->GetTitle() == "session");
+      CHECK(s->Count() == 22);
+    }
+
+    {
+      Section *s = ini_file.GetSection("markers");
+      CHECK(s != nullptr);
+      CHECK(s->GetTitle() == "markers");
+      CHECK(s->Count() == 106);
+    }
   }
+  SUBCASE("get value from key") {
+    ini_file.Open();
+
+    {
+      Section *s = ini_file.GetSection("session");
+      CHECK(s->GetValue("session.start.vehicles") == "\"21\"");
+      CHECK(s->GetValue("session.start") == "\"[2024,5,26,17,24,23,399]\"");
+    }
+
+    {
+      Section *s = ini_file.GetSection("markers");
+      CHECK(s->GetValue("_USER_DEFINED #0/107/0") ==
+            "\"\"~_USER_DEFINED "
+            "#0/107/"
+            "0~[5590.6641,8799.0645,0.0000]~hd_dot~ICON~[]~[1,1]~0~Solid~"
+            "ColorGreen~1~41 LOC\"\"");
+    }
+  }
+}
+
+TEST_CASE("INIFile error tests") {
+  INIFile ini_file("XDF_Op_Errors", "db/");
+  ini_file.Open();
+
+  SUBCASE("duplicate sections") { CHECK(ini_file.GetSectionCount() == 2); }
 }
